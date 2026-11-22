@@ -35,6 +35,9 @@ const invoiceSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    clientDid: { type: String, default: null, index: true },
+    caseDid: { type: String, default: null, index: true },
+    taskDid: { type: String, default: null, index: true },
     invoiceNo: {
       type: String,
       trim: true,

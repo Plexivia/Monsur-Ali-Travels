@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { MoneyReceiptForm } from './MoneyReceiptForm';
 import { MoneyReceiptPreview } from './MoneyReceiptPreview';
 import { getDefaultMoneyReceiptData, generateReceiptNo, numberToWords } from './sampleData';
@@ -23,6 +24,40 @@ export function MoneyReceipt({ initialData = null, isLocked = false, onSavedSucc
   const [viewMode, setViewMode] = useState('edit'); // 'edit' | 'split' | 'preview'
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [searchParams] = useSearchParams();
+  const requestedReceiptNo = searchParams.get('receiptNo');
+  const autoPrint = searchParams.get('autoPrint') === 'true';
+
+  // Open an already-issued receipt (from a case's Payments tab or Document Vault link)
+  useEffect(() => {
+    if (!requestedReceiptNo || initialData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get(`/api/v1/client/receipts/${encodeURIComponent(requestedReceiptNo)}`);
+        const saved = res.data?.data;
+        if (!saved) throw new Error('Receipt not found');
+        if (cancelled) return;
+        const amt = Number(saved.amount) || 0;
+        setData((prev) => ({
+          ...prev,
+          ...saved,
+          phone: saved.phone || saved.clientPhone || prev.phone,
+          amount: amt,
+          amountInWords: saved.amountInWords || (amt ? numberToWords(amt) : prev.amountInWords),
+        }));
+        setViewMode('preview');
+        if (autoPrint) {
+          setTimeout(() => {
+            printDocument({ docId: saved.receiptNo, docType: 'Money_Receipt', clientName: saved.clientName });
+          }, 1000);
+        }
+      } catch (err) {
+        if (!cancelled) toast.error(err.response?.data?.message || `Could not load receipt ${requestedReceiptNo}`);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [requestedReceiptNo, autoPrint, initialData]);
 
   useEffect(() => {
     if (initialData) {
@@ -88,7 +123,7 @@ export function MoneyReceipt({ initialData = null, isLocked = false, onSavedSucc
             await apiClient.post(`/api/v1/client/cases/${initialData.caseDid}/documents`, {
               documentName: `Money Receipt #${returnedNo}`,
               fileName: `Receipt-${returnedNo}.pdf`,
-              fileUrl: saved?.pdfUrl || `/api/v1/client/receipts/${saved?._id}/pdf`,
+              fileUrl: saved?.pdfUrl || `/admin/docs/money-receipt?receiptNo=${returnedNo}&autoPrint=true`,
               fileType: 'application/pdf',
               fileSize: '1.0 MB',
               accessLevel: 'Public',
@@ -107,8 +142,8 @@ export function MoneyReceipt({ initialData = null, isLocked = false, onSavedSucc
         throw new Error(res.data?.message || 'Failed to save receipt.');
       }
     } catch (err) {
-      console.warn('Receipt save warning (preview mode ready):', err);
-      toast.info(`Money receipt voucher preview ready! (#${data.receiptNo})`);
+      console.error('Receipt save failed:', err);
+      toast.error(err.response?.data?.message || err.message || 'Failed to save the money receipt. Nothing was saved.');
     } finally {
       setIsSubmitting(false);
     }

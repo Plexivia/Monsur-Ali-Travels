@@ -30,12 +30,13 @@ export const getErpOverviewStats = async (req, res, next) => {
       CaseFile.countDocuments({
         status: { $nin: ['COMPLETED', 'COMPLETED_DELIVERED', 'REJECTED'] },
       }),
-      MoneyReceiptModel.aggregate([
-        { $match: { status: { $ne: 'cancelled' } } },
-        { $group: { _id: null, total: { $sum: '$amount' } } },
+      // Collected from clients = client ledgers (includes advances taken at case opening, no receipt needed)
+      Client.aggregate([
+        { $group: { _id: null, total: { $sum: '$totalPaidAmount' } } },
       ]),
-      BillModel.aggregate([
-        { $group: { _id: null, total: { $sum: '$amount' } } },
+      // Client billing (not office bills): sum of agreed amounts across client accounts
+      Client.aggregate([
+        { $group: { _id: null, total: { $sum: '$totalBilledAmount' } } },
       ]),
       CaseFile.find()
         .sort({ updatedAt: -1, createdAt: -1 })

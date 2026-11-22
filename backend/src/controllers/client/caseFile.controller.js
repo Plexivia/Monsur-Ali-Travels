@@ -520,7 +520,7 @@ export const createCase = async (req, res) => {
 
     // Add case reference to Client and update totals & attachments
     const clientUpdatePayload = {
-      $addToSet: { caseDids: newCase.did, clientCaseDids: newCase.did },
+      $addToSet: { caseDids: newCase.did },
       $inc: {
         totalBilledAmount: totalAgreed,
         totalDueAmount: due,
@@ -661,6 +661,28 @@ export const deleteCase = async (req, res) => {
         success: false,
         message: "Case not found",
       });
+    }
+
+    // Cascade: remove child tasks / vault docs and roll the case out of the client's account
+    try {
+      await TaskModel.deleteMany({ caseDid: deleted.did });
+      await DocumentVaultModel.deleteMany({ caseDid: deleted.did });
+      if (deleted.clientDid) {
+        const ledger = deleted.paymentLedger || {};
+        await Client.updateOne(
+          { did: deleted.clientDid },
+          {
+            $pull: { caseDids: deleted.did },
+            $inc: {
+              totalBilledAmount: -(Number(ledger.totalAgreedAmount) || 0),
+              totalPaidAmount: -(Number(ledger.totalPaidAmount) || 0),
+              totalDueAmount: -(Number(ledger.dueAmount) || 0),
+            },
+          }
+        );
+      }
+    } catch (cascadeErr) {
+      console.warn("[deleteCase] cascade cleanup notice:", cascadeErr.message);
     }
 
     return res.status(200).json({

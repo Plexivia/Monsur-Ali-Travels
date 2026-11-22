@@ -27,6 +27,8 @@ const indianVisaSubmissionSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    caseDid: { type: String, default: null, index: true },
+    clientDid: { type: String, default: null, index: true },
     trackingNo: {
       type: String,
       trim: true,

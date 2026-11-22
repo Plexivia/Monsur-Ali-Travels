@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import CaseFile from "../../models/caseFile.model.js";
 import TaskModel from "../../models/task.model.js";
+import Client from "../../models/client.model.js";
 import DocumentVaultModel from "../../models/documentVault.model.js";
 import MoneyReceiptModel, {
   generateReceiptTokenNo,
@@ -213,6 +214,8 @@ export const assignTaskStep = async (req, res) => {
         const newInvoice = await InvoiceModel.create({
           did: generateDid(),
           invoiceNo,
+          clientDid: caseDoc.clientDid || null,
+          caseDid: caseDoc.did,
           issueDate: new Date().toISOString().split("T")[0],
           dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
           paymentStatus: "Pending",
@@ -237,6 +240,9 @@ export const assignTaskStep = async (req, res) => {
 
         createdInvoiceDid = newInvoice.did;
         createdInvoiceNo = newInvoice.invoiceNo;
+        if (caseDoc.clientDid) {
+          await Client.updateOne({ did: caseDoc.clientDid }, { $addToSet: { invoiceDids: newInvoice.did } });
+        }
       } catch (invErr) {
         console.warn("[assignTaskStep] Auto-invoice generation notice:", invErr.message);
       }
@@ -265,6 +271,10 @@ export const assignTaskStep = async (req, res) => {
       status: "Pending",
       createdByDid: adminDid,
     });
+
+    if (createdInvoiceDid) {
+      await InvoiceModel.updateOne({ did: createdInvoiceDid }, { $set: { taskDid: newTask.did } }).catch(() => {});
+    }
 
     // Update case workflow status, assigned officer, and push to history
     caseDoc.assignedToDid = canonicalAssignedToDid;
@@ -426,12 +436,17 @@ export const addPayment = async (req, res) => {
       caseDoc.paymentLedger = { totalAgreedAmount: 0, totalPaidAmount: 0, step1_advance: 0, dueAmount: 0 };
     }
 
-    // Update payment ledger
-    caseDoc.paymentLedger.totalPaidAmount = (caseDoc.paymentLedger.totalPaidAmount || 0) + paymentAmount;
-    caseDoc.paymentLedger.dueAmount = Math.max(0, caseDoc.paymentLedger.totalAgreedAmount - caseDoc.paymentLedger.totalPaidAmount);
-
+    // Update payment ledger. totalPaidAmount / dueAmount are recomputed by the
+    // CaseFile pre-save hook from the buckets below, so add to a bucket only.
+    const dueBefore = Number(caseDoc.paymentLedger.dueAmount) || 0;
     if (paymentType === "Advance Payment") {
-      caseDoc.paymentLedger.step1_advance = paymentAmount;
+      caseDoc.paymentLedger.step1_advance = (Number(caseDoc.paymentLedger.step1_advance) || 0) + paymentAmount;
+    } else if (paymentType === "Offer Letter Approval") {
+      caseDoc.paymentLedger.step2_offerApproval = (Number(caseDoc.paymentLedger.step2_offerApproval) || 0) + paymentAmount;
+    } else if (paymentType === "Final Delivery Payment") {
+      caseDoc.paymentLedger.step3_delivery = (Number(caseDoc.paymentLedger.step3_delivery) || 0) + paymentAmount;
+    } else {
+      caseDoc.paymentLedger.otherPayments = (Number(caseDoc.paymentLedger.otherPayments) || 0) + paymentAmount;
     }
 
     // Advance workflow state if it's the initial entry
@@ -493,6 +508,15 @@ export const addPayment = async (req, res) => {
     
     await caseDoc.save();
 
+    // Keep Client financial summary in sync with the case ledger
+    if (caseDoc.clientDid) {
+      const dueDelta = dueBefore - (Number(caseDoc.paymentLedger.dueAmount) || 0);
+      await Client.updateOne(
+        { did: caseDoc.clientDid },
+        { $inc: { totalPaidAmount: paymentAmount, totalDueAmount: -Math.max(0, dueDelta) } }
+      ).catch((e) => console.warn("[addPayment] client ledger sync notice:", e.message));
+    }
+
     // Trigger global / assigned officer notification
     await NotificationModel.create({
       title: "Payment Received",
@@ -530,5 +554,132 @@ export const addPayment = async (req, res) => {
       status: "error",
       message: error.message || "Failed to process payment",
     });
+  }
+};
+
+
+/**
+ * Activate the Indian Visa sub-pipeline on a case file (Greece / North Macedonia flow).
+ * POST /api/v1/admin/cases/:caseDid/indian-visa-subpipeline
+ */
+export const activateIndianVisaSubpipeline = async (req, res) => {
+  try {
+    const caseDoc = await CaseFile.findOne(buildCaseIdentifierQuery(req.params.caseDid));
+    if (!caseDoc) {
+      return res.status(404).json({ status: "error", message: "Case File not found" });
+    }
+
+    const extra = caseDoc.extraData && typeof caseDoc.extraData === "object" ? caseDoc.extraData : {};
+    const alreadyActive = Boolean(extra.indianVisaSubpipeline?.active);
+    if (!alreadyActive) {
+      caseDoc.extraData = {
+        ...extra,
+        indianVisaSubpipeline: {
+          active: true,
+          activatedAt: new Date(),
+          activatedByDid: req.user?.did || null,
+        },
+      };
+      caseDoc.markModified("extraData");
+      caseDoc.statusHistory.push({
+        status: "Indian Visa Sub-Pipeline Activated",
+        remarks: "Indian visa (Delhi travel) required before proceeding",
+        updatedByDid: req.user?.did || null,
+        updatedByName: req.user?.name || "Admin",
+        date: new Date(),
+      });
+      await caseDoc.save();
+    }
+
+    const params = new URLSearchParams({ caseDid: caseDoc.did, clientDid: caseDoc.clientDid || "" });
+    return res.status(200).json({
+      status: "success",
+      message: alreadyActive ? "Indian Visa sub-pipeline already active" : "Indian Visa sub-pipeline activated",
+      data: {
+        caseDid: caseDoc.did,
+        documentStudioUrl: `/admin/docs/indian-visa?${params.toString()}`,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ status: "error", message: error.message || "Failed to activate Indian Visa sub-pipeline" });
+  }
+};
+
+
+/**
+ * Issue a Money Receipt on request for money already collected on a case
+ * (e.g. the advance taken when the case was opened). Does NOT change the ledger.
+ * POST /api/v1/admin/cases/:caseDid/issue-receipt  { amount?, paymentMethod?, purpose? }
+ */
+export const issueReceiptForCase = async (req, res) => {
+  try {
+    const caseDoc = await CaseFile.findOne(buildCaseIdentifierQuery(req.params.caseDid));
+    if (!caseDoc) {
+      return res.status(404).json({ status: "error", message: "Case File not found" });
+    }
+
+    const totalPaid = Number(caseDoc.paymentLedger?.totalPaidAmount) || 0;
+    const agg = await MoneyReceiptModel.aggregate([
+      { $match: { caseDid: caseDoc.did, status: { $ne: "cancelled" }, isActive: { $ne: false } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]);
+    const alreadyReceipted = agg[0]?.total || 0;
+    const available = Math.max(0, totalPaid - alreadyReceipted);
+
+    const amount = req.body?.amount !== undefined ? Number(req.body.amount) : available;
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ status: "error", message: "No un-receipted collection available for this case" });
+    }
+    if (amount > available) {
+      return res.status(400).json({
+        status: "error",
+        message: `Amount exceeds un-receipted collection (BDT ${available.toLocaleString()} available)`,
+      });
+    }
+
+    const receiptNo = generateReceiptTokenNo();
+    const qrCode = await generateReceiptQrCode(receiptNo);
+    const purpose = req.body?.purpose || `Payment collected for Case #${caseDoc.caseNumber || caseDoc.did}`;
+    const receipt = await MoneyReceiptModel.create({
+      receiptNo,
+      qrCode,
+      clientDid: caseDoc.clientDid,
+      caseDid: caseDoc.did,
+      clientName: caseDoc.applicantName || "Valued Client",
+      clientPhone: caseDoc.phone || "",
+      passportNumber: caseDoc.passportNumber || "",
+      amount,
+      currency: "BDT",
+      paymentMethod: req.body?.paymentMethod || caseDoc.paymentLedger?.paymentMethod || "Cash",
+      serviceType: "Visa Processing & Case Handling",
+      purpose,
+      receiptDate: new Date().toISOString().split("T")[0],
+      status: "confirmed",
+      createdByDid: req.user?.did,
+      createdByName: req.user?.name || "Admin",
+      receivedBy: req.user?.name || "Accounts Officer",
+      notes: "Receipt issued on request from existing collection",
+    });
+
+    await DocumentVaultModel.create({
+      clientDid: caseDoc.clientDid,
+      caseDid: caseDoc.did,
+      documentName: `Money Receipt #${receipt.receiptNo}`,
+      fileName: `Receipt-${receipt.receiptNo}.pdf`,
+      fileUrl: `/admin/docs/money-receipt?receiptNo=${receipt.receiptNo}&autoPrint=true`,
+      fileType: "application/pdf",
+      fileSize: "125 KB",
+      accessLevel: "Public",
+      uploadedByDid: req.user?.did,
+      uploadedByName: req.user?.name || "Admin",
+    });
+
+    return res.status(201).json({
+      status: "success",
+      message: "Receipt issued",
+      data: { receipt, remainingUnreceipted: available - amount },
+    });
+  } catch (error) {
+    return res.status(500).json({ status: "error", message: error.message || "Failed to issue receipt" });
   }
 };

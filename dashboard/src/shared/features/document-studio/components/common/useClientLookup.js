@@ -51,7 +51,7 @@ export function useClientLookup({ onClientFound }) {
               try {
                 const caseRes = await apiClient.get('/api/v1/client/cases', {
                   params: {
-                    clientId: matched._id,
+                    clientDid: matched.did || matched._id,
                     status: 'active,processing,new,pending',
                     limit: 1,
                     sort: '-createdAt',

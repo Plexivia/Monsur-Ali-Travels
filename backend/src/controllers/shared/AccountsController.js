@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MoneyReceiptModel } from "../../models/moneyReceipt.model.js";
+import CaseFile from "../../models/caseFile.model.js";
 import { InvoiceModel } from "../../models/invoice.model.js";
 import { SalarySlipModel } from "../../models/salarySlip.model.js";
 import { CashVoucherModel } from "../../models/cashVoucher.model.js";
@@ -106,6 +107,49 @@ function buildDateFilter(period, startDate, endDate, dateField = "createdAt") {
   return { query, start, end };
 }
 
+
+/**
+ * Money collected on a case that has no Money Receipt (e.g. the advance taken when the case was opened).
+ * It is already in the case/client ledger, so Accounts must show it too. Returns receipt-shaped rows.
+ */
+async function getUnreceiptedCollections(dateQuery = {}) {
+  const cases = await CaseFile.find({ ...dateQuery, "paymentLedger.totalPaidAmount": { $gt: 0 } })
+    .select("did clientDid applicantName phone passportNumber caseNumber paymentLedger createdAt")
+    .lean();
+  if (!cases.length) return [];
+
+  const sums = await MoneyReceiptModel.aggregate([
+    { $match: { caseDid: { $in: cases.map((c) => c.did) }, status: { $ne: "cancelled" }, isActive: { $ne: false } } },
+    { $group: { _id: "$caseDid", total: { $sum: "$amount" } } },
+  ]);
+  const receipted = new Map(sums.map((x) => [x._id, x.total]));
+
+  return cases
+    .map((c) => {
+      const amount = (Number(c.paymentLedger?.totalPaidAmount) || 0) - (receipted.get(c.did) || 0);
+      return { c, amount };
+    })
+    .filter(({ amount }) => amount > 0)
+    .map(({ c, amount }) => ({
+      _id: `norcpt-${c.did}`,
+      did: `norcpt-${c.did}`,
+      receiptNo: "NO RECEIPT",
+      noReceipt: true,
+      caseDid: c.did,
+      clientDid: c.clientDid,
+      clientName: c.applicantName || "Client",
+      clientPhone: c.phone || "",
+      passportNumber: c.passportNumber || "",
+      serviceType: "Visa Processing & Case Handling",
+      purpose: `Collected on Case #${c.caseNumber || c.did} (no receipt issued)`,
+      paymentMethod: c.paymentLedger?.paymentMethod || "Cash",
+      amount,
+      currency: "BDT",
+      status: "confirmed",
+      createdAt: c.createdAt,
+    }));
+}
+
 // ── 1. GET /api/v1/accounts/payments ──────────────────────────────────────────
 export const getPayments = async (req, res, next) => {
   try {
@@ -145,10 +189,33 @@ export const getPayments = async (req, res, next) => {
     const take = Math.min(100, parseInt(limit, 10) || 25);
     const sort = { [sortBy]: sortOrder === "asc" ? 1 : -1 };
 
-    const [items, total] = await Promise.all([
-      MoneyReceiptModel.find(filter).sort(sort).skip(skip).limit(take).lean(),
+    // Case collections without a receipt (shown first, flagged "NO RECEIPT")
+    const q = String(search || "").toLowerCase();
+    let extra = [];
+    if (!status || status === "all" || /^confirmed$/i.test(status)) {
+      extra = await getUnreceiptedCollections(dateQuery);
+      if (paymentMethod && paymentMethod !== "all") {
+        extra = extra.filter((e) => String(e.paymentMethod).toLowerCase() === String(paymentMethod).toLowerCase());
+      }
+      if (q) {
+        extra = extra.filter((e) =>
+          [e.clientName, e.clientPhone, e.passportNumber, e.purpose].some((v) => String(v || "").toLowerCase().includes(q))
+        );
+      }
+    }
+    const pageExtra = extra.slice(skip, skip + take);
+    const receiptSkip = Math.max(0, skip - extra.length);
+    const receiptTake = take - pageExtra.length;
+
+    const [receiptItems, receiptTotal] = await Promise.all([
+      receiptTake > 0
+        ? MoneyReceiptModel.find(filter).sort(sort).skip(receiptSkip).limit(receiptTake).lean()
+        : Promise.resolve([]),
       MoneyReceiptModel.countDocuments(filter),
     ]);
+    const items = [...pageExtra, ...receiptItems];
+    const total = receiptTotal + extra.length;
+    const extraAmount = extra.reduce((sum, e) => sum + e.amount, 0);
 
     const totalAmount = await MoneyReceiptModel.aggregate([
       { $match: filter },
@@ -163,7 +230,8 @@ export const getPayments = async (req, res, next) => {
         page: parseInt(page, 10),
         limit: take,
         totalPages: Math.ceil(total / take) || 1,
-        totalAmount: totalAmount[0]?.total || 0,
+        totalAmount: (totalAmount[0]?.total || 0) + extraAmount,
+        unreceiptedAmount: extraAmount,
       },
     });
   } catch (err) {
@@ -627,7 +695,11 @@ export const getCashBook = async (req, res, next) => {
       BillModel.find(cashBillsFilter).sort({ createdAt: -1 }).lean(),
     ]);
 
-    const totalCashIn = cashReceipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+    const noReceiptCash = (await getUnreceiptedCollections(dateQuery)).filter((e) => /^cash$/i.test(String(e.paymentMethod)));
+
+    const totalCashIn =
+      cashReceipts.reduce((sum, r) => sum + Number(r.amount || 0), 0) +
+      noReceiptCash.reduce((sum, e) => sum + e.amount, 0);
     const totalVouchersOut = cashVouchers.reduce((sum, v) => sum + Number(v.grandTotal || v.subtotal || 0), 0);
     const totalBillsOut = cashBills.reduce((sum, b) => sum + Number(b.paidAmount || 0), 0);
     const totalCashOut = totalVouchersOut + totalBillsOut;
@@ -635,6 +707,19 @@ export const getCashBook = async (req, res, next) => {
 
     // Combined timeline ledger
     const transactions = [
+      ...noReceiptCash.map((e) => ({
+        id: e._id,
+        type: "INFLOW",
+        category: "Case Collection (no receipt)",
+        refNo: "NO RECEIPT",
+        party: e.clientName,
+        phone: e.clientPhone,
+        description: e.purpose,
+        amountIn: e.amount,
+        amountOut: 0,
+        date: e.createdAt,
+        status: "Confirmed",
+      })),
       ...cashReceipts.map((r) => ({
         id: r._id,
         type: "INFLOW",
@@ -684,7 +769,7 @@ export const getCashBook = async (req, res, next) => {
           totalCashOut,
           netCashBalance,
           totalTransactions: transactions.length,
-          receiptsCount: cashReceipts.length,
+          receiptsCount: cashReceipts.length + noReceiptCash.length,
           vouchersCount: cashVouchers.length,
           billsCount: cashBills.length,
         },

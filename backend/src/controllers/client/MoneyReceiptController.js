@@ -195,6 +195,20 @@ export const generateQrEndpoint = async (req, res, next) => {
   }
 };
 
+// Apply a signed amount (+ on confirm, - on cancel/delete) to the client's financial summary
+async function applyClientPaymentDelta(clientDid, delta) {
+  if (!clientDid || !delta) return;
+  try {
+    const cust = await Client.findOne({ did: clientDid });
+    if (!cust) return;
+    cust.totalPaidAmount = Math.max(0, (cust.totalPaidAmount || 0) + delta);
+    cust.totalDueAmount = Math.max(0, (cust.totalBilledAmount || 0) - cust.totalPaidAmount);
+    await cust.save();
+  } catch (err) {
+    console.error("Failed to update client ledger:", err);
+  }
+}
+
 // @desc    Create new money receipt / voucher
 // @route   POST /api/v1/receipts
 export const createReceipt = async (req, res, next) => {
@@ -244,6 +258,11 @@ export const createReceipt = async (req, res, next) => {
     }
 
     const newReceipt = await MoneyReceiptModel.create(body);
+
+    // Receipts created already-confirmed count immediately toward the client's paid total
+    if (newReceipt.status === "confirmed" && newReceipt.clientDid) {
+      await applyClientPaymentDelta(newReceipt.clientDid, Number(newReceipt.amount || 0));
+    }
 
     const creatorName = req.user?.name || body.createdByName || "Staff Member";
     const receiptAmount = Number(newReceipt.amount || newReceipt.netReceivedBDT || 0);
@@ -446,12 +465,17 @@ export const cancelReceipt = async (req, res, next) => {
       return;
     }
 
+    const wasConfirmed = receipt.status === "confirmed";
     receipt.status = "cancelled";
     if (reason) {
       receipt.notes = receipt.notes ? `${receipt.notes} | Cancellation Reason: ${reason}` : `Cancellation Reason: ${reason}`;
     }
 
     await receipt.save();
+
+    if (wasConfirmed && receipt.clientDid) {
+      await applyClientPaymentDelta(receipt.clientDid, -Number(receipt.amount || 0));
+    }
 
     return res.status(200).json({
       status: "success",

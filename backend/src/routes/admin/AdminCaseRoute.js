@@ -4,6 +4,8 @@ import {
   assignTaskStep,
   approveTaskStep,
   addPayment,
+  activateIndianVisaSubpipeline,
+  issueReceiptForCase,
 } from "../../controllers/admin/caseController.js";
 import {
   getAllCases,
@@ -39,6 +41,8 @@ adminCaseRouter.post("/assign-step", assignTaskStep);
 adminCaseRouter.patch("/tasks/:taskDid/approve", approveTaskStep);
 adminCaseRouter.patch("/tasks/:taskDid/complete", completeTaskStep);
 adminCaseRouter.post("/:caseDid/payments", addPayment);
+adminCaseRouter.post("/:caseDid/issue-receipt", issueReceiptForCase);
+adminCaseRouter.post("/:caseDid/indian-visa-subpipeline", activateIndianVisaSubpipeline);
 adminCaseRouter.patch("/:id/workflow", updateWorkflowStatus);
 adminCaseRouter.post("/:id/messages", addCaseInternalMessage);
 adminCaseRouter.post("/:id/documents", uploadCaseDocument);

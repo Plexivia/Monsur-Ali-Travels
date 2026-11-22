@@ -96,6 +96,8 @@ const caseFileSchema = new Schema(
       index: true,
     },
 
+    // Was accepted by createCase but silently dropped (not in schema), so it never persisted
+    destinationCountry: { type: String, default: "", trim: true },
     assignedToDid: {
       type: String,
       default: null,
@@ -144,6 +146,7 @@ const caseFileSchema = new Schema(
       step1_advance: { type: Number, default: 0 },        // Advance upon file submission
       step2_offerApproval: { type: Number, default: 0 },   // Upon offer letter approval
       step3_delivery: { type: Number, default: 0 },        // Upon visa & passport delivery
+      otherPayments: { type: Number, default: 0 },         // Installments / any payment outside steps 1-3
       totalPaidAmount: { type: Number, default: 0 },
       dueAmount: { type: Number, default: 0, index: true }, // Outstanding due balance tracking
       isFullyPaid: { type: Boolean, default: false },
@@ -211,7 +214,8 @@ caseFileSchema.pre("save", function (next) {
   const p1 = Number(this.paymentLedger?.step1_advance) || 0;
   const p2 = Number(this.paymentLedger?.step2_offerApproval) || 0;
   const p3 = Number(this.paymentLedger?.step3_delivery) || 0;
-  const totalPaid = p1 + p2 + p3;
+  const p4 = Number(this.paymentLedger?.otherPayments) || 0;
+  const totalPaid = p1 + p2 + p3 + p4;
   this.paymentLedger.totalPaidAmount = totalPaid;
 
   const totalAgreed = Number(this.paymentLedger?.totalAgreedAmount) || 0;

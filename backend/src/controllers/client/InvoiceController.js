@@ -80,7 +80,7 @@ export const getInvoiceById = async (req, res, next) => {
   try {
     const { id } = req.params;
     const isMongoId = id.match(/^[0-9a-fA-F]{24}$/);
-    const query = isMongoId ? { _id: id, isActive: { $ne: false } } : { invoiceNo: id, isActive: { $ne: false } };
+    const query = isMongoId ? { _id: id, isActive: { $ne: false } } : { $or: [{ invoiceNo: id }, { did: id }], isActive: { $ne: false } };
 
     const invoice = await InvoiceModel.findOne(query);
     if (!invoice) {
@@ -172,7 +172,7 @@ export const updateInvoice = async (req, res, next) => {
   try {
     const { id } = req.params;
     const isMongoId = id.match(/^[0-9a-fA-F]{24}$/);
-    const query = isMongoId ? { _id: id } : { invoiceNo: id };
+    const query = isMongoId ? { _id: id } : { $or: [{ invoiceNo: id }, { did: id }] };
 
     const existing = await InvoiceModel.findOne(query);
     if (!existing) {
@@ -220,7 +220,7 @@ export const deleteInvoice = async (req, res, next) => {
 
     const { id } = req.params;
     const isMongoId = id.match(/^[0-9a-fA-F]{24}$/);
-    const query = isMongoId ? { _id: id } : { invoiceNo: id };
+    const query = isMongoId ? { _id: id } : { $or: [{ invoiceNo: id }, { did: id }] };
 
     const deletedInvoice = await InvoiceModel.findOneAndUpdate(query, { isActive: false }, { new: true });
     if (!deletedInvoice) {
@@ -245,7 +245,7 @@ export const sendInvoiceByEmail = async (req, res, next) => {
   try {
     const { id } = req.params;
     const isMongoId = id.match(/^[0-9a-fA-F]{24}$/);
-    const query = isMongoId ? { _id: id, isActive: { $ne: false } } : { invoiceNo: id, isActive: { $ne: false } };
+    const query = isMongoId ? { _id: id, isActive: { $ne: false } } : { $or: [{ invoiceNo: id }, { did: id }], isActive: { $ne: false } };
 
     const invoice = await InvoiceModel.findOne(query);
     if (!invoice) {

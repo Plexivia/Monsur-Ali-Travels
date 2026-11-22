@@ -128,73 +128,33 @@ class StorageSyncService {
 
     // 2. Client
     if (Client) {
-      const clients = await Client.find({}, 'photo passportScan documents').lean();
-      clients.forEach((c) => {
-        addReference(c.photo);
-        addReference(c.passportScan);
-        if (Array.isArray(c.documents)) {
-          c.documents.forEach((doc) => {
-            addReference(doc.fileUrl);
-            addReference(doc.fileName);
-            addReference(doc.url);
-          });
-        }
-      });
+      // Files live under `attachments.*` (photo, passportScan, nidScan, ...) plus legacy top-level fields.
+      const clients = await Client.find({}).lean();
+      clients.forEach((c) => collectAllStringRefs(c, addReference));
     }
 
     // 3. ClientCaseFile
     if (ClientCaseFileModel) {
-      const clients = await ClientCaseFileModel.find(
-        {},
-        'photo passportCopy medicalReport visaCopy files attachments documents'
-      ).lean();
-      clients.forEach((c) => {
-        addReference(c.photo);
-        addReference(c.passportCopy);
-        addReference(c.medicalReport);
-        addReference(c.visaCopy);
-        if (Array.isArray(c.files)) c.files.forEach(addReference);
-        if (Array.isArray(c.attachments)) c.attachments.forEach(addReference);
-        if (Array.isArray(c.documents)) c.documents.forEach(addReference);
-      });
+      const clients = await ClientCaseFileModel.find({}).lean();
+      clients.forEach((c) => collectAllStringRefs(c, addReference));
     }
 
     // 4. IndianVisaSubmission
     if (IndianVisaSubmissionModel) {
-      const visas = await IndianVisaSubmissionModel.find(
-        {},
-        'passportPhoto oldVisaCopy electricityBill documents attachments'
-      ).lean();
-      visas.forEach((v) => {
-        addReference(v.passportPhoto);
-        addReference(v.oldVisaCopy);
-        addReference(v.electricityBill);
-        if (Array.isArray(v.documents)) v.documents.forEach(addReference);
-        if (Array.isArray(v.attachments)) v.attachments.forEach(addReference);
-      });
+      const visas = await IndianVisaSubmissionModel.find({}).lean();
+      visas.forEach((v) => collectAllStringRefs(v, addReference));
     }
 
     // 5. PassportSubmission
     if (PassportSubmissionModel) {
-      const passports = await PassportSubmissionModel.find({}, 'passportScan documents').lean();
-      passports.forEach((p) => {
-        addReference(p.passportScan);
-        if (Array.isArray(p.documents)) p.documents.forEach(addReference);
-      });
+      const passports = await PassportSubmissionModel.find({}).lean();
+      passports.forEach((p) => collectAllStringRefs(p, addReference));
     }
 
     // 6. ClientGuardianApplication
     if (ClientGuardianModel) {
-      const apps = await ClientGuardianModel.find(
-        {},
-        'photo signature nidCopy documents'
-      ).lean();
-      apps.forEach((a) => {
-        addReference(a.photo);
-        addReference(a.signature);
-        addReference(a.nidCopy);
-        if (Array.isArray(a.documents)) a.documents.forEach(addReference);
-      });
+      const apps = await ClientGuardianModel.find({}).lean();
+      apps.forEach((a) => collectAllStringRefs(a, addReference));
     }
 
     // 7. MoneyReceipt & Invoices
@@ -608,3 +568,18 @@ class StorageSyncService {
 
 export const storageSyncService = new StorageSyncService();
 export default storageSyncService;
+
+/**
+ * Recursively feed every string value of a document to addReference, so files stored in
+ * nested objects (e.g. Client.attachments.passportScan) are never mistaken for orphans.
+ */
+function collectAllStringRefs(value, addReference, depth = 0) {
+  if (value == null || depth > 6) return;
+  if (typeof value === "string") {
+    addReference(value);
+  } else if (Array.isArray(value)) {
+    value.forEach((v) => collectAllStringRefs(v, addReference, depth + 1));
+  } else if (typeof value === "object" && !(value instanceof Date) && typeof value.toHexString !== "function") {
+    Object.values(value).forEach((v) => collectAllStringRefs(v, addReference, depth + 1));
+  }
+}

@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import TaskModel from "../../models/task.model.js";
 import CaseFile from "../../models/caseFile.model.js";
+import DocumentVaultModel from "../../models/documentVault.model.js";
+import Client from "../../models/client.model.js";
 import MoneyReceiptModel, { generateReceiptTokenNo } from "../../models/moneyReceipt.model.js";
 import { NotificationModel } from "../../models/notification.model.js";
 import { generateDid } from "../../utils/generateDid.js";
@@ -111,6 +113,7 @@ export const markTaskDone = async (req, res) => {
             clientPhone: caseDoc ? (caseDoc.phone || "") : "",
             passportNumber: caseDoc ? (caseDoc.passportNumber || "") : "",
             clientDid: caseDoc ? caseDoc.clientDid : null,
+            caseDid: caseDoc ? caseDoc.did : task.caseDid,
             amount: collected,
             currency: task.paymentCurrency || "BDT",
             paymentMethod: paymentMethod || "Cash",
@@ -130,31 +133,23 @@ export const markTaskDone = async (req, res) => {
           task.moneyReceiptDid = newReceipt.did;
           task.moneyReceiptNumber = newReceipt.receiptNo;
 
-          // Attach created receipt to task permittedDocs
-          if (!Array.isArray(task.permittedDocs)) task.permittedDocs = [];
-          task.permittedDocs.push({
-            did: newReceipt.did,
-            documentName: `Money Receipt #${newReceipt.receiptNo}`,
-            fileName: `Receipt-${newReceipt.receiptNo}.pdf`,
-            fileUrl: `/api/v1/client/receipts/${newReceipt._id}/pdf`,
-            fileType: "application/pdf",
-            accessLevel: "Public",
-          });
-
-          // Attach to caseDoc vaultDocuments
+          // permittedDocs / vaultDocuments are read-only virtuals; persist the receipt as a real vault document
           if (caseDoc) {
-            if (!Array.isArray(caseDoc.vaultDocuments)) caseDoc.vaultDocuments = [];
-            caseDoc.vaultDocuments.push({
+            const vaultDoc = await DocumentVaultModel.create({
               did: generateDid(),
+              clientDid: caseDoc.clientDid,
+              caseDid: caseDoc.did,
               documentName: `Money Receipt #${newReceipt.receiptNo}`,
               fileName: `Receipt-${newReceipt.receiptNo}.pdf`,
-              fileUrl: `/api/v1/client/receipts/${newReceipt._id}/pdf`,
+              fileUrl: `/admin/docs/money-receipt?receiptNo=${newReceipt.receiptNo}&autoPrint=true`,
               fileType: "application/pdf",
-              fileSize: "1.0 MB",
+              fileSize: "125 KB",
               accessLevel: "Public",
-              uploadedBy: req.user?.name || "Staff",
-              uploadedAt: new Date(),
+              uploadedByDid: userDid,
+              uploadedByName: req.user?.name || "Staff",
             });
+            if (!Array.isArray(task.allowedDocumentDids)) task.allowedDocumentDids = [];
+            if (vaultDoc?.did) task.allowedDocumentDids.push(vaultDoc.did);
           }
         } catch (receiptErr) {
           console.warn("[markTaskDone] Auto Money Receipt generation notice:", receiptErr.message);
@@ -164,6 +159,7 @@ export const markTaskDone = async (req, res) => {
       // Update Case Financial Ledger whenever money was collected
       if (caseDoc) {
         if (!caseDoc.paymentLedger) caseDoc.paymentLedger = {};
+        const dueBefore = Number(caseDoc.paymentLedger.dueAmount) || 0;
         const stepNum = task.stepNumber || 1;
         if (stepNum === 1) {
           caseDoc.paymentLedger.step1_advance = (Number(caseDoc.paymentLedger.step1_advance) || 0) + collected;
@@ -172,6 +168,9 @@ export const markTaskDone = async (req, res) => {
           caseDoc.paymentLedger.step2_offerApproval = (Number(caseDoc.paymentLedger.step2_offerApproval) || 0) + collected;
         } else if (stepNum === 3) {
           caseDoc.paymentLedger.step3_delivery = (Number(caseDoc.paymentLedger.step3_delivery) || 0) + collected;
+        } else {
+          // Steps beyond 3 would otherwise be wiped by the CaseFile pre-save recalculation
+          caseDoc.paymentLedger.otherPayments = (Number(caseDoc.paymentLedger.otherPayments) || 0) + collected;
         }
 
         const currentTotalPaid = (Number(caseDoc.paymentLedger.totalPaidAmount || caseDoc.totalPaidAmount) || 0) + collected;
@@ -182,6 +181,14 @@ export const markTaskDone = async (req, res) => {
         caseDoc.paymentLedger.dueAmount = caseDoc.dueAmount;
         caseDoc.paymentLedger.isFullyPaid = caseDoc.dueAmount <= 0;
         await caseDoc.save();
+
+        if (caseDoc.clientDid) {
+          const dueDelta = Math.max(0, dueBefore - (Number(caseDoc.paymentLedger.dueAmount) || 0));
+          await Client.updateOne(
+            { did: caseDoc.clientDid },
+            { $inc: { totalPaidAmount: collected, totalDueAmount: -dueDelta } }
+          ).catch((e) => console.warn("[markTaskDone] client ledger sync notice:", e.message));
+        }
       }
     }
 

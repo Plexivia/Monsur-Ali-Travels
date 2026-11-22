@@ -50,6 +50,7 @@ class ClientController {
         .populate("visaSubmissions", "trackingNo visaType status submissionDate")
         .populate("passportSubmissions", "trackingNo passportType status submissionDate")
         .populate("clientCases", "fileNumber clientName destinationCountry tradeSkill workflowStatus")
+        .populate("cases", "caseNumber applicantName caseType destinationCountry status workflowStatus paymentLedger")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit);
@@ -89,6 +90,7 @@ class ClientController {
         .populate("visaSubmissions")
         .populate("passportSubmissions")
         .populate("clientCases")
+        .populate("cases")
         .populate("agreements")
         .populate("invoices");
 

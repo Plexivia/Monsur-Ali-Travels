@@ -221,6 +221,7 @@ export function AgencyCaseList({ autoOpenCreate = false }) {
 
   // Summary Metrics
   const metrics = useMemo(() => {
+    const total = cases.length;
     let intake = 0;
     let underProcess = 0;
     let offerLetter = 0;
@@ -444,8 +445,21 @@ export function AgencyCaseList({ autoOpenCreate = false }) {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="w-full pl-10 pr-4 py-2 text-xs bg-white border border-black/15 rounded-xl text-black placeholder:text-black/40 focus:ring-2 focus:ring-black/10 outline-none font-medium"
+            className="w-full pl-10 pr-9 py-2 text-xs bg-white border border-black/15 rounded-xl text-black placeholder:text-black/40 focus:ring-2 focus:ring-black/10 outline-none font-medium"
           />
+          {search && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearch('');
+                setPage(1);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 flex size-5 items-center justify-center rounded-full text-black/50 hover:bg-black/10 hover:text-black cursor-pointer text-sm leading-none"
+            >
+              ×
+            </button>
+          )}
         </div>
       </div>
 

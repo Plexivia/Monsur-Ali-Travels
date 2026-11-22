@@ -1540,6 +1540,42 @@ export default function CaseDetailPage() {
               </button>
             </div>
 
+            {(() => {
+              const collected = Number(caseData.paymentLedger?.totalPaidAmount) || 0;
+              const receipted = (caseData.financialReceipts || [])
+                .filter((r) => r.status !== 'cancelled')
+                .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+              const unreceipted = Math.max(0, collected - receipted);
+              if (unreceipted <= 0) return null;
+              return (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900 px-4 py-3 text-xs">
+                  <div>
+                    <p className="font-bold text-amber-800 dark:text-amber-300">
+                      BDT {unreceipted.toLocaleString('en-IN')} collected without a receipt
+                    </p>
+                    <p className="text-amber-700/80 dark:text-amber-400/80">
+                      Already counted in the case ledger and accounts. Issue a receipt only if the client needs one.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await apiClient.post(`/api/v1/admin/cases/${caseData.did || id}/issue-receipt`, { amount: unreceipted });
+                        toast.success(res.data?.message || 'Receipt issued');
+                        fetchCaseDetails();
+                      } catch (err) {
+                        toast.error(err.response?.data?.message || 'Failed to issue receipt');
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer transition shrink-0"
+                  >
+                    Issue Receipt for this amount
+                  </button>
+                </div>
+              );
+            })()}
+
             {(caseData.financialReceipts || []).length === 0 ? (
               <div className="py-12 text-center text-muted-foreground text-xs space-y-2 border border-dashed border-border rounded-2xl">
                 <Receipt className="w-8 h-8 mx-auto opacity-40" />
