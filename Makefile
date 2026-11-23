@@ -1,4 +1,4 @@
-.PHONY: deploy build-bg build-client build-admin build-front logs status down
+.PHONY: deploy deploy-notify build-bg build-client build-admin build-front logs status down
 
 deploy:
 	git reset --hard HEAD
@@ -7,6 +7,10 @@ deploy:
 	git reset --hard origin/live
 	docker compose -f docker-compose.prod.yml build --no-cache
 	docker compose -f docker-compose.prod.yml up -d
+	@bash scripts/deploy-notify.sh
+
+deploy-notify:
+	@bash scripts/deploy-notify.sh
 
 build-bg:
 	git reset --hard HEAD

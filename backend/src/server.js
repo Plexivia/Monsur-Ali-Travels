@@ -7,6 +7,7 @@ import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { createShutdownHandler } from "./helper/sutdownHelper.js";
 import { startStorageMaintenanceScheduler, stopStorageMaintenanceScheduler } from "./jobs/storageMaintenance.job.js";
+import { startSupportStream } from "./services/plexiviaSupportStream.service.js";
 
 async function bootstrap() {
   // await connectMySQL();
@@ -50,6 +51,7 @@ async function bootstrap() {
   server.listen(port, "0.0.0.0", () => {
     logger.info({ port, environment: env.NODE_ENV }, "Server listening");
     startStorageMaintenanceScheduler();
+    startSupportStream();
   });
 
   const shutdown = createShutdownHandler(server);

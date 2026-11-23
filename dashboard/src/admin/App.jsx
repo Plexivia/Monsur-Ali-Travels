@@ -18,6 +18,7 @@ import ClientDetailPage from '@/pages/ClientDetailPage'
 import UsersPage from '@/pages/UsersPage'
 import EmployeesPage from '@/pages/EmployeesPage'
 import SettingsPage from '@/pages/SettingsPage'
+import SupportDesk from '@shared/features/support/SupportDeskPage'
 import DocumentStudioPage from '@/pages/DocumentStudioPage'
 import DocumentDataPage from '@/pages/DocumentDataPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -92,6 +93,7 @@ export default function App() {
               <Route path="data/:submodule" element={<DocumentDataPage />} />
 
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="support" element={<SupportDesk />} />
               <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Route>

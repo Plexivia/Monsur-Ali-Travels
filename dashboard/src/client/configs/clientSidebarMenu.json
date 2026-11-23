@@ -395,5 +395,21 @@
         ]
       }
     ]
+  },
+  {
+    "groupLabel": "Support",
+    "groupLabelBn": "",
+    "roles": ["owner", "superadmin", "admin", "manager"],
+    "items": [
+      {
+        "id": "support-desk",
+        "name": "Support Desk",
+        "nameBn": "",
+        "portal": "support",
+        "submodule": "desk",
+        "path": "/dashboard/support",
+        "icon": "LifeBuoy"
+      }
+    ]
   }
 ]

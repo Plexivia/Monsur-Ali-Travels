@@ -21,7 +21,7 @@ export const parsePortalFromPath = (pathname) => {
     if (parts[1]) submodule = parts[1] === 'dashboard' ? 'tasks' : parts[1];
   }
 
-  const validPortals = ['overview', 'agency', 'accounts', 'docs', 'data', 'settings', 'profile'];
+  const validPortals = ['overview', 'agency', 'accounts', 'docs', 'data', 'settings', 'profile', 'support'];
   if (!validPortals.includes(portal)) {
     portal = 'overview';
     submodule = 'tasks';

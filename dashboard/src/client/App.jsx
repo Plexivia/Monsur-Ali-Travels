@@ -12,6 +12,7 @@ import Accounts from './pages/Accounts';
 import Settings from './pages/Settings';
 import Overview from './pages/Overview';
 import Agency from './pages/Agency';
+import SupportDesk from '@shared/features/support/SupportDeskPage';
 import NotFoundPage from './pages/NotFoundPage';
 import { GlobalErrorBoundary } from './components/common/GlobalErrorBoundary';
 import { ToastContainer } from './components/common/ToastContainer';
@@ -78,7 +79,7 @@ function MainLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setSearchOpen]);
 
-  const isKnownPortal = ['overview', 'agency', 'docs', 'data', 'accounts', 'settings', 'profile'].includes(activePortal);
+  const isKnownPortal = ['overview', 'agency', 'docs', 'data', 'accounts', 'settings', 'profile', 'support'].includes(activePortal);
 
   return (
     <DashboardLayout
@@ -98,6 +99,7 @@ function MainLayout() {
       {activePortal === 'data' && <DocumentData />}
       {activePortal === 'accounts' && <Accounts />}
       {(activePortal === 'settings' || activePortal === 'profile') && <Settings />}
+      {activePortal === 'support' && <SupportDesk />}
       {!isKnownPortal && <NotFoundPage />}
     </DashboardLayout>
   );

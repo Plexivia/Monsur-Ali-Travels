@@ -5,6 +5,7 @@ import authRouter from "./routes/shared/AuthRoute.js";
 import qrRouter from "./routes/shared/QrRoute.js";
 import uploadRouter from "./routes/shared/UploadRoute.js";
 import notificationRouter from "./routes/shared/NotificationRoute.js";
+import supportRouter from "./routes/shared/SupportRoute.js";
 // import developerRouter from "./routes/shared/DeveloperRoute.js";
 
 // --- ADMIN ROUTES ---
@@ -49,6 +50,7 @@ coreRouter.use("/qrcode", qrRouter);
 coreRouter.use("/upload", authenticateToken, uploadRouter);
 coreRouter.use("/uploads", authenticateToken, uploadRouter);
 coreRouter.use("/notifications", notificationRouter);
+coreRouter.use("/support", supportRouter);
 coreRouter.use("/inquiries", inquiryRouter);
 coreRouter.use("/public/inquiries", inquiryRouter);
 coreRouter.use("/contact", inquiryRouter);

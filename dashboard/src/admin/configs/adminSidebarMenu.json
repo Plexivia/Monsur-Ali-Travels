@@ -364,6 +364,14 @@
             "nameBn": "",
             "path": "/admin/system/trash",
             "icon": "Trash2"
+          },
+          {
+            "id": "support-desk",
+            "name": "Support Desk",
+            "nameBn": "",
+            "path": "/admin/support",
+            "icon": "LifeBuoy",
+            "roles": ["owner", "superadmin", "admin", "manager"]
           }
         ]
       }
