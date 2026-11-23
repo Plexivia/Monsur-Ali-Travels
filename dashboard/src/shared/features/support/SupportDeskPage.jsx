@@ -31,6 +31,7 @@ import {
 import { apiClient } from "@shared/lib/api-client";
 import { getSocket } from "@shared/lib/socket";
 import { toast } from "sonner";
+import { clientConfig } from "@shared/configs/clientConfig";
 
 // Safely resolves hosting alerts without direct cross-origin browser requests
 const fetchBillingAlerts = async () => null;
@@ -197,9 +198,9 @@ const AttachmentList = ({ attachments }) => {
 
 // Support Desk main view component
 export const SupportDesk = () => {
-  const clientKey = clientConfig?.clientKey || "demo";
-  const brandName = clientConfig?.brandName || "Store";
-  const domain = clientConfig?.domain || window.location.hostname;
+  const clientKey = clientConfig?.clientKey || "monsuralitravels";
+  const brandName = clientConfig?.brandName || "Monsur Ali Travels";
+  const domain = clientConfig?.domain || (typeof window !== "undefined" ? window.location.hostname : "monsuralitravelsbd.com");
 
   const [tickets, setTickets] = useState([]);
   const [billingInfo, setBillingInfo] = useState(null);

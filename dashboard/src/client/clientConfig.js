@@ -1,5 +1,2 @@
-export const clientConfig = {
-  brandName: 'Monsur Ali Travels',
-};
-
-export default clientConfig;
+export * from '../shared/configs/clientConfig';
+export { default } from '../shared/configs/clientConfig';
