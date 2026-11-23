@@ -2,6 +2,42 @@ import mongoose from "mongoose";
 import { PassportSubmissionModel, generateUniquePassportTrackingNo } from "../../models/passportSubmission.model.js";
 import { NotificationModel } from "../../models/notification.model.js";
 import { checkManagerCanDelete, checkManagerCanUpdate } from "../../helper/managerRbacHelper.js";
+import { syncClientProfile } from "../../helper/clientSyncHelper.js";
+
+// Links a passport submission to the central Client collection.
+// Pushes the submission DID into Client.passportSubmissionDids and
+// back-fills clientDid on the submission itself.
+const linkPassportToClient = async (submission, actorDid = null) => {
+  if (!submission) return null;
+  try {
+    const syncedClient = await syncClientProfile({
+      fullName: submission.applicantName,
+      phone: submission.applicantPhone,
+      nidNumber: submission.nidBirthCertNo,
+      passportNumber: submission.previousPassportNo,
+      email: submission.applicantEmail,
+      presentAddress: submission.address,
+      guardian: {
+        name: submission.guardianName,
+        phone: submission.guardianPhone,
+        relationship: submission.relationship,
+      },
+      attachments: submission.attachments,
+      relationType: "passport",
+      relationId: submission.did,
+      createdByDid: actorDid,
+    });
+
+    if (syncedClient && !submission.clientDid) {
+      submission.clientDid = syncedClient.did;
+      await submission.save();
+    }
+    return syncedClient;
+  } catch (error) {
+    console.error("linkPassportToClient error:", error);
+    return null;
+  }
+};
 
 // Helper to query passport submission by either MongoDB _id, did, or trackingNo
 const findPassportByIdOrTracking = async (id, extraQuery = {}) => {
@@ -109,10 +145,13 @@ export const createPassportSubmission = async (req, res, next) => {
     }
     const newSubmission = await PassportSubmissionModel.create(body);
 
+    const syncedClient = await linkPassportToClient(newSubmission, req.user?.did || null);
+
     return res.status(201).json({
       status: "success",
       message: "Passport submission saved successfully",
       data: newSubmission,
+      clientDid: syncedClient?.did || newSubmission.clientDid || null,
     });
   } catch (error) {
     next(error);
@@ -144,6 +183,8 @@ export const updatePassportSubmission = async (req, res, next) => {
         runValidators: true,
       }
     );
+
+    await linkPassportToClient(updatedSubmission, req.user?.did || null);
 
     return res.status(200).json({
       status: "success",

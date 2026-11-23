@@ -1,5 +1,7 @@
 import { EmployeeModel } from "../../models/employee.model.js";
 import { generateDid } from "../../utils/generateDid.js";
+import { linkUserToEmployee } from "../../helper/employeeLinkHelper.js";
+import { UserModel } from "../../models/user.model.js";
 
 // List all employees with pagination and filters
 export const listEmployees = async (req, res, next) => {
@@ -93,10 +95,22 @@ export const createEmployee = async (req, res, next) => {
       baseSalary: Number(payload.baseSalary) || 0,
       accessLevel: payload.accessLevel || "Level_1",
       status: payload.status || "Active",
+      userDid: payload.userDid || undefined,
       createdByDid: req.user?.did || null,
     });
 
-    res.status(201).json({ status: "success", success: true, data: employee });
+    // Attach an existing login account (matched by email / phone) if there is one
+    const linkedUser = await linkUserToEmployee(employee, req.user?.did || null);
+
+    res.status(201).json({
+      status: "success",
+      success: true,
+      data: employee,
+      userDid: linkedUser?.did || employee.userDid || null,
+      message: linkedUser
+        ? "Employee created and linked to the existing login account."
+        : "Employee created. No login account found - create one from the Users panel to grant access.",
+    });
   } catch (error) {
     next(error);
   }
@@ -123,6 +137,10 @@ export const updateEmployee = async (req, res, next) => {
 
     if (!updated) return res.status(404).json({ status: "error", message: "Employee not found" });
 
+    if (!updated.userDid) {
+      await linkUserToEmployee(await EmployeeModel.findOne({ did: updated.did }), req.user?.did || null);
+    }
+
     res.json({ status: "success", success: true, data: updated });
   } catch (error) {
     next(error);
@@ -137,6 +155,9 @@ export const deleteEmployee = async (req, res, next) => {
 
     const deleted = await EmployeeModel.findOneAndDelete(query).lean();
     if (!deleted) return res.status(404).json({ status: "error", message: "Employee not found" });
+
+    // Drop the dangling link from the login account
+    await UserModel.updateMany({ employeeDid: deleted.did }, { employeeDid: null });
 
     res.json({ status: "success", success: true, message: `Employee "${deleted.fullName}" deleted successfully.` });
   } catch (error) {

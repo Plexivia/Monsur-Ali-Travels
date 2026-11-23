@@ -41,7 +41,25 @@ const salarySlipSchema = new mongoose.Schema(
       default: generateUniqueSlipNumber,
     },
 
-    // Employee Details
+    // Employee Details (relational links to Employee / User collections)
+    employeeDid: {
+      type: String,
+      ref: "Employee",
+      default: null,
+      index: true,
+    },
+    userDid: {
+      type: String,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    employeeCode: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
+    },
     employeeName: {
       type: String,
       required: [true, "Employee name is required"],
@@ -120,8 +138,25 @@ const salarySlipSchema = new mongoose.Schema(
   {
     timestamps: true,
     collection: "salary-slips",
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
+
+// Virtual populates for DID relations
+salarySlipSchema.virtual("employeeInfo", {
+  ref: "Employee",
+  localField: "employeeDid",
+  foreignField: "did",
+  justOne: true,
+});
+
+salarySlipSchema.virtual("userInfo", {
+  ref: "User",
+  localField: "userDid",
+  foreignField: "did",
+  justOne: true,
+});
 
 salarySlipSchema.pre("save", function (next) {
   if (!this.slipNo) {

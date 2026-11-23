@@ -689,10 +689,18 @@ export const getCashBook = async (req, res, next) => {
       paymentMethod: { $regex: /^cash$/i },
     };
 
-    const [cashReceipts, cashVouchers, cashBills] = await Promise.all([
+    // Outflow 3: Salaries Paid in Cash (payroll slips)
+    const cashSalariesFilter = {
+      ...dateQuery,
+      isActive: { $ne: false },
+      paymentMode: { $regex: /^cash$/i },
+    };
+
+    const [cashReceipts, cashVouchers, cashBills, cashSalaries] = await Promise.all([
       MoneyReceiptModel.find(cashReceiptsFilter).sort({ createdAt: -1 }).lean(),
       CashVoucherModel.find(cashVouchersFilter).sort({ createdAt: -1 }).lean(),
       BillModel.find(cashBillsFilter).sort({ createdAt: -1 }).lean(),
+      SalarySlipModel.find(cashSalariesFilter).sort({ createdAt: -1 }).lean(),
     ]);
 
     const noReceiptCash = (await getUnreceiptedCollections(dateQuery)).filter((e) => /^cash$/i.test(String(e.paymentMethod)));
@@ -702,7 +710,8 @@ export const getCashBook = async (req, res, next) => {
       noReceiptCash.reduce((sum, e) => sum + e.amount, 0);
     const totalVouchersOut = cashVouchers.reduce((sum, v) => sum + Number(v.grandTotal || v.subtotal || 0), 0);
     const totalBillsOut = cashBills.reduce((sum, b) => sum + Number(b.paidAmount || 0), 0);
-    const totalCashOut = totalVouchersOut + totalBillsOut;
+    const totalSalariesOut = cashSalaries.reduce((sum, p) => sum + Number(p.netSalaryPayable || 0), 0);
+    const totalCashOut = totalVouchersOut + totalBillsOut + totalSalariesOut;
     const netCashBalance = totalCashIn - totalCashOut;
 
     // Combined timeline ledger
@@ -759,6 +768,20 @@ export const getCashBook = async (req, res, next) => {
         date: b.billDate || b.createdAt,
         status: b.paymentStatus || "Paid",
       })),
+      ...cashSalaries.map((p) => ({
+        id: p._id,
+        type: "OUTFLOW",
+        category: "Salary",
+        refNo: p.slipNo || p.did,
+        party: p.employeeName,
+        phone: "",
+        employeeDid: p.employeeDid || null,
+        description: `Salary ${p.salaryMonth} - ${p.designation || "Employee"}`,
+        amountIn: 0,
+        amountOut: Number(p.netSalaryPayable || 0),
+        date: p.payDate || p.createdAt,
+        status: "Paid",
+      })),
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.json({
@@ -772,6 +795,8 @@ export const getCashBook = async (req, res, next) => {
           receiptsCount: cashReceipts.length + noReceiptCash.length,
           vouchersCount: cashVouchers.length,
           billsCount: cashBills.length,
+          salariesCount: cashSalaries.length,
+          totalSalariesOut,
         },
         transactions,
       },
@@ -800,9 +825,17 @@ export const getBankLedger = async (req, res, next) => {
       paymentMethod: { $not: { $regex: /^cash$/i } },
     };
 
-    const [bankReceipts, bankBills] = await Promise.all([
+    // Salaries paid through any non-cash channel
+    const bankSalaryFilter = {
+      ...dateQuery,
+      isActive: { $ne: false },
+      paymentMode: { $not: { $regex: /^cash$/i } },
+    };
+
+    const [bankReceipts, bankBills, bankSalaries] = await Promise.all([
       MoneyReceiptModel.find(bankInflowFilter).sort({ createdAt: -1 }).lean(),
       BillModel.find(bankOutflowFilter).sort({ createdAt: -1 }).lean(),
+      SalarySlipModel.find(bankSalaryFilter).sort({ createdAt: -1 }).lean(),
     ]);
 
     const channelSummary = {};
@@ -819,6 +852,10 @@ export const getBankLedger = async (req, res, next) => {
     for (const b of bankBills) {
       const amount = Number(b.paidAmount || 0);
       totalBankOut += amount;
+    }
+
+    for (const p of bankSalaries) {
+      totalBankOut += Number(p.netSalaryPayable || 0);
     }
 
     const netBankBalance = totalBankIn - totalBankOut;
@@ -860,6 +897,25 @@ export const getBankLedger = async (req, res, next) => {
         date: b.billDate || b.createdAt,
         status: b.paymentStatus || "Paid",
       })),
+      ...bankSalaries.map((p) => ({
+        id: p._id,
+        type: "OUTFLOW",
+        category: "Salary",
+        refNo: p.slipNo || p.did,
+        method: p.paymentMode || "Bank Transfer",
+        party: p.employeeName,
+        phone: "",
+        passport: "",
+        employeeDid: p.employeeDid || null,
+        description: `Salary ${p.salaryMonth} - ${p.designation || "Employee"}`,
+        bankName: "",
+        accountNo: "",
+        amountIn: 0,
+        amountOut: Number(p.netSalaryPayable || 0),
+        amount: Number(p.netSalaryPayable || 0),
+        date: p.payDate || p.createdAt,
+        status: "Paid",
+      })),
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.json({
@@ -871,7 +927,8 @@ export const getBankLedger = async (req, res, next) => {
           netBankBalance,
           totalTransactions: transactions.length,
           inflowsCount: bankReceipts.length,
-          outflowsCount: bankBills.length,
+          outflowsCount: bankBills.length + bankSalaries.length,
+          salariesCount: bankSalaries.length,
           channelBreakdown: Object.entries(channelSummary).map(([channel, amount]) => ({
             channel: channel.toUpperCase(),
             amount,

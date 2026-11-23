@@ -13,6 +13,7 @@ import {
   Globe2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { fetchAllCases } from '@/lib/case-fetch';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { CaseFileCreationModal } from './CaseFileCreationModal';
@@ -151,15 +152,13 @@ export function AgencyCaseList({ autoOpenCreate = false }) {
   const fetchCases = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = {
-        page: 1,
-        limit: 250,
+      const { cases: list, truncated } = await fetchAllCases({
         search: search.trim() || undefined,
-      };
-
-      const res = await apiClient.get('/api/v1/client/cases', { params });
-      const list = res.data?.data || (Array.isArray(res.data) ? res.data : []);
+      });
       setCases(list);
+      if (truncated) {
+        toast.error('Too many case files to load at once - please refine your search.');
+      }
     } catch (err) {
       console.error('Failed to load agency cases:', err);
       toast.error('Unable to fetch case files from server.');

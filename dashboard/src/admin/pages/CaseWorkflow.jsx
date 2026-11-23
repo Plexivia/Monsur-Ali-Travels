@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '../lib/api-client';
+import { fetchAllCases } from '@/lib/case-fetch';
 import { StepAssignModal } from '../components/workflow/StepAssignModal';
 import { AddPaymentModal } from '../components/workflow/AddPaymentModal';
 import { CaseDetailDrawer } from '../components/workflow/CaseDetailDrawer';
@@ -314,9 +315,14 @@ export default function CaseWorkflow() {
   const fetchCases = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiClient.get('/api/v1/client/cases?limit=250&sortBy=updatedAt&sortOrder=desc');
-      const data = res.data?.data || res.data?.cases || res.data || [];
-      setCases(Array.isArray(data) ? data : []);
+      const { cases: allCases, truncated } = await fetchAllCases(
+        {},
+        { sortBy: 'updatedAt', sortOrder: 'desc' }
+      );
+      setCases(allCases);
+      if (truncated) {
+        toast.error('Too many cases to load at once - use the filters to narrow the board.');
+      }
     } catch (err) {
       toast.error('Failed to load workflow cases.');
       setCases([]);

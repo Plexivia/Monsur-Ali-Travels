@@ -6,6 +6,8 @@ import {
   validateUpdateUserPayload,
 } from "../../helper/userControllerHelper.js";
 import { sendStaffInvitationEmail } from "../../services/emailService.js";
+import { ensureEmployeeForUser, syncEmployeeFromUser } from "../../helper/employeeLinkHelper.js";
+import { EmployeeModel } from "../../models/employee.model.js";
 
 // Helper to query user by either MongoDB _id or custom did
 const findUserByIdOrDid = async (id) => {
@@ -78,6 +80,9 @@ export const createUser = async (req, res, next) => {
       createdByDid: req.user?.did || null,
     });
 
+    // Every staff account must own an Employee (HR / payroll) record
+    const linkedEmployee = await ensureEmployeeForUser(user, req.user?.did || null);
+
     // Send welcome/credentials email asynchronously
     sendStaffInvitationEmail({
       toEmail: user.email,
@@ -88,7 +93,11 @@ export const createUser = async (req, res, next) => {
       invitedBy: req.user?.name || "Administrator",
     }).catch(() => {});
 
-    res.status(201).json({ status: "success", data: user });
+    res.status(201).json({
+      status: "success",
+      data: user,
+      employeeDid: linkedEmployee?.did || null,
+    });
   } catch (error) {
     next(error);
   }
@@ -153,6 +162,13 @@ export const updateUser = async (req, res, next) => {
     user.updatedByDid = req.user?.did || null;
     await user.save();
 
+    // Keep the HR record attached and in step with the profile
+    if (!user.employeeDid) {
+      await ensureEmployeeForUser(user, req.user?.did || null);
+    } else {
+      await syncEmployeeFromUser(user, req.user?.did || null);
+    }
+
     res.json({ status: "success", data: user.toJSON() });
   } catch (error) {
     next(error);
@@ -186,6 +202,7 @@ export const toggleUserStatus = async (req, res, next) => {
 
     user.updatedByDid = req.user?.did || null;
     await user.save();
+    await syncEmployeeFromUser(user, req.user?.did || null);
 
     res.json({
       status: "success",
@@ -218,6 +235,10 @@ export const deleteUser = async (req, res, next) => {
     }
 
     await UserModel.deleteOne({ _id: user._id });
+
+    // Keep the Employee (HR history) but drop the login link
+    await EmployeeModel.updateMany({ userDid: user.did }, { userDid: null });
+
     res.json({ status: "success", message: "User deleted successfully" });
   } catch (error) {
     next(error);

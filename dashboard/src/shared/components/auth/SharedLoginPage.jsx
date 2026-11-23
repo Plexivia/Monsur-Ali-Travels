@@ -15,19 +15,25 @@ import {
   QrCode,
   Loader2,
 } from 'lucide-react';
-import { useAuth as useDefaultAuth } from '@/store/useAuthStore';
 import { apiClient } from '@/lib/api-client';
 import { handleGlobalError } from '@shared/lib/error-handler';
 import { toast } from 'sonner';
 import defaultLogo from '@/assets/logo.png';
 import plexiviaLogo from '../../assets/plexivia.png';
 
+// `useAuthHook` is required: the admin and client portals each own their own
+// auth store, and this shared component lives outside both, so it cannot
+// import either one. Each portal's LoginPage passes its own `useAuth` hook.
 export function SharedLoginPage({
   portalType = 'client',
   portalTitle = 'Operations & Staff Workspace Portal',
   logoSrc = defaultLogo,
-  useAuthHook = useDefaultAuth,
+  useAuthHook,
 }) {
+  if (typeof useAuthHook !== 'function') {
+    throw new Error('SharedLoginPage requires a `useAuthHook` prop (the portal auth store hook).');
+  }
+
   const {
     user,
     login,
