@@ -1,0 +1,45 @@
+{
+  "hubUrl": "https://api.plexihub.space",
+  "docsKey": "ViqyChL5RUIrWXWi",
+  "clientKey": "monsuralitravels",
+  "ownerDId": "1008790760339802",
+  "project": "monsuralitravels",
+  "timeoutMs": 10000,
+  "categories": {
+    "planning": [
+      "plans/",
+      "planning/"
+    ],
+    "docs": [
+      "Docs/",
+      "AI_INSTRUCTIONS.md",
+      "README.md"
+    ],
+    "dashboard": [
+      "dashboard/"
+    ],
+    "frontend": [
+      "frontend/"
+    ],
+    "backend": [
+      "backend/"
+    ],
+    "telemetry": [
+      "telemetry-agent/",
+      "plexi-agent-mat.service"
+    ],
+    "infra": [
+      "nginx",
+      "docker-compose",
+      "Makefile",
+      "scripts/",
+      "ecosystem.config.js",
+      "monsuralitravels.service",
+      "monsuralitravels-dev.service",
+      ".github/",
+      ".githooks/",
+      "dev-setup.sh",
+      "client-setup.sh"
+    ]
+  }
+}
